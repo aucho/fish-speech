@@ -82,6 +82,7 @@ class TTSInferenceEngine(ReferenceLoader, VQManager):
             )
 
         segments = []
+        is_first_segment = True
 
         while True:
             # Get the response from the LLAMA model
@@ -108,6 +109,28 @@ class TTSInferenceEngine(ReferenceLoader, VQManager):
             if result.action != "next":
                 segment = self.get_audio_segment(result)
 
+                # Insert a short pause between chunks to make concatenation natural
+                if not is_first_segment:
+                    end_char = (result.text or "").strip()[
+                        -1:
+                    ]  # last character if present
+                    # Slightly shorter pause for clear sentence-ending punctuation
+                    if end_char in [".", "!", "?", ";", ":", "。", "！", "？", "；", "："]:
+                        pause_sec = 0.15
+                    else:
+                        pause_sec = 0.25
+                    pause_samples = max(int(sample_rate * pause_sec), 0)
+                    if pause_samples > 0:
+                        pause_segment = np.zeros(pause_samples, dtype=segment.dtype)
+                        if req.streaming:  # stream the pause first
+                            yield InferenceResult(
+                                code="segment",
+                                audio=(sample_rate, pause_segment),
+                                error=None,
+                            )
+                        else:
+                            segments.append(pause_segment)
+
                 if req.streaming:  # Used only by the API server
                     yield InferenceResult(
                         code="segment",
@@ -115,6 +138,7 @@ class TTSInferenceEngine(ReferenceLoader, VQManager):
                         error=None,
                     )
                 segments.append(segment)
+                is_first_segment = False
             else:
                 break
 

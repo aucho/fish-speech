@@ -397,7 +397,7 @@ def generate_long(
     decode_one_token: Callable,
     text: str,
     num_samples: int = 1,
-    max_new_tokens: int = 0,
+    max_new_tokens: int = 1024,
     top_p: float = 0.8,
     repetition_penalty: float = 1.1,
     temperature: float = 0.8,
@@ -426,92 +426,167 @@ def generate_long(
 
     model_size = sum(p.numel() for p in model.parameters() if p.requires_grad)
     tokenizer = model.tokenizer
-    base_content_sequence = ContentSequence(modality="interleave")
 
-    max_length = model.config.max_seq_len
-    if use_prompt:
-        for t, c in zip(prompt_text, prompt_tokens):
-            base_content_sequence.append(
-                [
-                    TextPart(text=t),
-                    VQPart(codes=c),
-                ],
-                add_end=True,
-                speaker=0,
-            )
-    base_content_sequence.append(
-        [
-            TextPart(text=text),
-        ],
-        add_end=False,
-        speaker=0,
-    )
+    def split_text_into_chunks(src_text: str, target_tokens_per_chunk: int) -> list[str]:
+        import re
 
-    encoded, audio_masks, audio_parts = base_content_sequence.encode_for_inference(
-        tokenizer, num_codebooks=model.config.num_codebooks
-    )
-    if encoded.size(1) > max_length - 2048:
-        raise ValueError(f"Prompt is too long: {encoded.size(1)} > {max_length - 2048}")
+        # First split by major sentence delimiters to preserve natural pauses
+        sentences = [s for s in re.split(r"([。！？!?；;]\s*|\n+)", src_text) if s is not None and s != ""]
+        # Merge delimiter back to preceding content
+        merged: list[str] = []
+        cur = ""
+        for s in sentences:
+            candidate = cur + s
+            if cur == "":
+                cur = s
+                continue
+            token_len = len(tokenizer.encode(candidate))
+            if token_len > target_tokens_per_chunk:
+                merged.append(cur)
+                cur = s
+            else:
+                cur = candidate
+        if cur:
+            merged.append(cur)
 
-    encoded = encoded.to(device=device)
-    logger.info(f"Encoded text: {text}")
+        final_chunks: list[str] = []
+        for piece in merged:
+            text_piece = piece.strip()
+            if not text_piece:
+                continue
+
+            # If the piece contains spaces (e.g., Spanish/English), pack by words to avoid cutting a single word
+            if " " in text_piece:
+                words = text_piece.split()
+                buf_words: list[str] = []
+                while words:
+                    buf_words.clear()
+                    token_count = 0
+                    # Greedily add whole words until we approach the target token budget
+                    while words:
+                        next_word = words[0]
+                        candidate = (" ".join(buf_words + [next_word])).strip()
+                        cand_tokens = len(tokenizer.encode(candidate))
+                        if cand_tokens <= target_tokens_per_chunk or not buf_words:
+                            buf_words.append(words.pop(0))
+                            token_count = cand_tokens
+                        else:
+                            break
+                    chunk_text = " ".join(buf_words).strip()
+                    if chunk_text:
+                        final_chunks.append(chunk_text)
+            else:
+                # No spaces (CJK/URLs) -> hard cut by tokens
+                ids = tokenizer.encode(text_piece)
+                if len(ids) <= target_tokens_per_chunk:
+                    final_chunks.append(text_piece)
+                else:
+                    start = 0
+                    while start < len(ids):
+                        end = min(start + target_tokens_per_chunk, len(ids))
+                        sub_txt = tokenizer.decode(ids[start:end]).strip()
+                        if sub_txt:
+                            final_chunks.append(sub_txt)
+                        start = end
+
+        return final_chunks
+
+    # Decide chunks
+    if iterative_prompt and chunk_length > 0:
+        text_chunks = split_text_into_chunks(text, chunk_length)
+    else:
+        text_chunks = [text]
 
     for sample_idx in range(num_samples):
-        if torch.cuda.is_available():
-            torch.cuda.synchronize()
+        for seg_idx, seg_text in enumerate(text_chunks):
+            # Log raw token count of this chunk before encoding/generation
+            try:
+                seg_token_count = len(tokenizer.encode(seg_text))
+                logger.info(
+                    f"Chunk {seg_idx + 1}/{len(text_chunks)} token_count={seg_token_count}"
+                )
+            except Exception:
+                logger.warning("Failed to compute token count for current chunk")
+            base_content_sequence = ContentSequence(modality="interleave")
+            if use_prompt:
+                for t, c in zip(prompt_text, prompt_tokens):
+                    base_content_sequence.append(
+                        [
+                            TextPart(text=t),
+                            VQPart(codes=c),
+                        ],
+                        add_end=True,
+                        speaker=0,
+                    )
+            base_content_sequence.append([TextPart(text=seg_text)], add_end=False, speaker=0)
 
-        global_encoded = []
-        seg_idx = 0
-        prompt_length = encoded.size(1)
-
-        t0 = time.perf_counter()
-
-        y = generate(
-            model=model,
-            prompt=encoded,
-            max_new_tokens=max_new_tokens,
-            audio_masks=audio_masks,
-            audio_parts=audio_parts,
-            decode_one_token=decode_one_token,
-            temperature=temperature,
-            top_p=top_p,
-            repetition_penalty=repetition_penalty,
-        )
-
-        if sample_idx == 0 and seg_idx == 0 and compile:
-            logger.info(f"Compilation time: {time.perf_counter() - t0:.2f} seconds")
-
-        if torch.cuda.is_available():
-            torch.cuda.synchronize()
-
-        t = time.perf_counter() - t0
-
-        tokens_generated = y.size(1) - prompt_length
-        tokens_sec = tokens_generated / t
-        logger.info(
-            f"Generated {tokens_generated} tokens in {t:.02f} seconds, {tokens_sec:.02f} tokens/sec"
-        )
-        logger.info(f"Bandwidth achieved: {model_size * tokens_sec / 1e9:.02f} GB/s")
-
-        if torch.cuda.is_available():
-            logger.info(
-                f"GPU Memory used: {torch.cuda.max_memory_reserved() / 1e9:.02f} GB"
+            encoded, audio_masks, audio_parts = base_content_sequence.encode_for_inference(
+                tokenizer, num_codebooks=model.config.num_codebooks
             )
 
-        # Put the generated tokens
-        codes = y[1:, prompt_length:-1].clone()
-        assert (codes >= 0).all(), f"Negative code found"
+            max_length = model.config.max_seq_len
+            if encoded.size(1) > max_length - 2048:
+                raise ValueError(
+                    f"Prompt is too long: {encoded.size(1)} > {max_length - 2048}"
+                )
 
-        decoded = y[:, prompt_length:].clone()
-        global_encoded.append(decoded.cpu())
-        assert (codes >= 0).all(), f"Negative code found: {codes}"
+            encoded = encoded.to(device=device)
+            logger.info(
+                f"Encoded text chunk ({seg_idx + 1}/{len(text_chunks)}): {seg_text}..."
+            )
 
-        yield GenerateResponse(action="sample", codes=codes, text=text)
-        seg_idx += 1
+            if torch.cuda.is_available():
+                torch.cuda.synchronize()
 
-        # Force GPU memory cleanup
-        del y, decoded, codes
+            prompt_length = encoded.size(1)
+            # Generation length should not be tied to chunk_length (which only guides text splitting).
+            # Use max_new_tokens for generation budget; 0 means no explicit limit (generate() will clamp to max_seq_len).
+            logger.info(f"max_new_tokens: {max_new_tokens}")
+            per_chunk_new_tokens = max_new_tokens
 
+            t0 = time.perf_counter()
+            y = generate(
+                model=model,
+                prompt=encoded,
+                max_new_tokens=per_chunk_new_tokens,
+                audio_masks=audio_masks,
+                audio_parts=audio_parts,
+                decode_one_token=decode_one_token,
+                temperature=temperature,
+                top_p=top_p,
+                repetition_penalty=repetition_penalty,
+            )
+
+            if sample_idx == 0 and seg_idx == 0 and compile:
+                logger.info(f"Compilation time: {time.perf_counter() - t0:.2f} seconds")
+
+            if torch.cuda.is_available():
+                torch.cuda.synchronize()
+
+            t = time.perf_counter() - t0
+            tokens_generated = y.size(1) - prompt_length
+            tokens_sec = max(tokens_generated, 1) / max(t, 1e-6)
+            logger.info(
+                f"Generated {tokens_generated} tokens in {t:.02f} seconds, {tokens_sec:.02f} tokens/sec"
+            )
+            logger.info(f"Bandwidth achieved: {model_size * tokens_sec / 1e9:.02f} GB/s")
+
+            if torch.cuda.is_available():
+                logger.info(
+                    f"GPU Memory used: {torch.cuda.max_memory_reserved() / 1e9:.02f} GB"
+                )
+
+            # Extract codes of this chunk (exclude prompt and final end token)
+            codes = y[1:, prompt_length:-1].clone()
+            assert (codes >= 0).all(), "Negative code found"
+
+            yield GenerateResponse(action="sample", codes=codes, text=seg_text)
+
+            del y, codes
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+
+        # signal completion for this sample
         yield GenerateResponse(action="next")
 
 
@@ -595,8 +670,8 @@ def launch_thread_safe_queue(
     multiple=True,
 )
 @click.option("--num-samples", type=int, default=1)
-@click.option("--max-new-tokens", type=int, default=0)
-@click.option("--top-p", type=float, default=0.8)
+@click.option("--max-new-tokens", type=int, default=2048)
+@click.option("--top-p", type=float, default=0.5)
 @click.option("--repetition-penalty", type=float, default=1.1)
 @click.option("--temperature", type=float, default=0.8)
 @click.option(
@@ -609,7 +684,7 @@ def launch_thread_safe_queue(
 @click.option("--seed", type=int, default=42)
 @click.option("--half/--no-half", default=False)
 @click.option("--iterative-prompt/--no-iterative-prompt", default=True)
-@click.option("--chunk-length", type=int, default=300)
+@click.option("--chunk-length", type=int, default=200)
 @click.option("--output-dir", type=Path, default="temp")
 def main(
     text: str,

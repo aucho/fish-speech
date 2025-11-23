@@ -1,10 +1,9 @@
 <div align="center">
 <h1>Fish Speech</h1>
 
-[English](../README.md) | [简体中文](README.zh.md) | [Portuguese](README.pt-BR.md) | **日本語** | [한국어](README.ko.md) <br>
+[English](../README.md) | [简体中文](README.zh.md) | [Portuguese](README.pt-BR.md) | **日本語** | [한국어](README.ko.md) | [العربية](README.ar.md) <br>
 
-<a href="https://www.producthunt.com/posts/fish-speech-1-4?embed=true&utm_source=badge-featured&utm_medium=badge&utm_souce=badge-fish&#0045;speech&#0045;1&#0045;4" target="_blank">
-    <img src="https://api.producthunt.com/widgets/embed-image/v1/featured.svg?post_id=488440&theme=light" alt="Fish&#0032;Speech&#0032;1&#0046;4 - Open&#0045;Source&#0032;Multilingual&#0032;Text&#0045;to&#0045;Speech&#0032;with&#0032;Voice&#0032;Cloning | Product Hunt" style="width: 250px; height: 54px;" width="250" height="54" />
+<a href="https://www.producthunt.com/products/fish-speech?embed=true&utm_source=badge-top-post-badge&utm_medium=badge&utm_source=badge-fish&#0045;audio&#0045;s1" target="_blank"><img src="https://api.producthunt.com/widgets/embed-image/v1/top-post-badge.svg?post_id=1023740&theme=light&period=daily&t=1761164814710" alt="Fish&#0032;Audio&#0032;S1 - Expressive&#0032;Voice&#0032;Cloning&#0032;and&#0032;Text&#0045;to&#0045;Speech | Product Hunt" style="width: 250px; height: 54px;" width="250" height="54" /></a>
 </a>
 <a href="https://trendshift.io/repositories/7014" target="_blank">
     <img src="https://trendshift.io/api/badge/repositories/7014" alt="fishaudio%2Ffish-speech | Trendshift" style="width: 250px; height: 55px;" width="250" height="55"/>
@@ -56,6 +55,7 @@
 こちらは Fish Speech の公式ドキュメントです。手順に従って簡単に始めることができます。
 
 - [インストール](https://speech.fish.audio/ja/install/)
+- [ファインチューニング](https://speech.fish.audio/ja/finetune/)
 - [推論](https://speech.fish.audio/ja/inference/)
 - [サンプル](https://speech.fish.audio/examples)
 
@@ -89,6 +89,7 @@ OpenAudio S1は、テキスト音声変換評価のベンチマークである[T
 </div>
 
 ### **音声制御**
+
 OpenAudio S1は**音声合成を強化するための様々な感情、トーン、特別なマーカーをサポート**しています：
 
 - **基本感情**:
@@ -126,15 +127,15 @@ OpenAudio S1は**音声合成を強化するための様々な感情、トーン
 ### **2種類のモデル**
 
 | モデル | サイズ | 利用可能性 | 機能 |
-|-------|--------|------------|------|
-| **S1** | 4Bパラメータ | [fish.audio](fish.audio)で利用可能 | フル機能のフラッグシップモデル |
+|-------|------|--------------|----------|
+| **S1** | 4Bパラメータ | [fish.audio](https://fish.audio/)で利用可能 | フル機能のフラッグシップモデル |
 | **S1-mini** | 0.5Bパラメータ | huggingface [hf space](https://huggingface.co/spaces/fishaudio/openaudio-s1-mini)で利用可能 | コア機能を持つ蒸留版 |
 
 S1とS1-miniの両方がオンライン人間フィードバック強化学習（RLHF）を組み込んでいます。
 
 ## **機能**
 
-1. **ゼロショット・少数ショットTTS：** 10〜30秒の音声サンプルを入力して高品質のTTS出力を生成します。**詳細なガイドラインについては、[Voice Cloning Best Practices](https://docs.fish.audio/text-to-speech/voice-clone-best-practices)をご覧ください。**
+1. **ゼロショット・少数ショットTTS：** 10〜30秒の音声サンプルを入力して高品質のTTS出力を生成します。**詳細なガイドラインについては、[Voice Cloning Best Practices](https://docs.fish.audio/resources/best-practices/voice-cloning)をご覧ください。**
 
 2. **多言語・言語横断サポート：** 多言語テキストを入力ボックスにコピー&ペーストするだけで、言語を気にする必要はありません。現在、英語、日本語、韓国語、中国語、フランス語、ドイツ語、アラビア語、スペイン語をサポートしています。
 
@@ -142,7 +143,7 @@ S1とS1-miniの両方がオンライン人間フィードバック強化学習�
 
 4. **高精度：** Seed-TTS Evalで約0.4%の低いCER（文字誤り率）と約0.8%のWER（単語誤り率）を達成します。
 
-5. **高速：** fish-tech加速により、Nvidia RTX 4060ラップトップで約1:5、Nvidia RTX 4090で約1:15のリアルタイム係数を実現します。
+5. **高速：** torch compileによる加速により、Nvidia RTX 4090 GPUで約1:7のリアルタイム係数を実現します。
 
 6. **WebUI推論：** 使いやすいGradioベースのWeb UIを搭載し、Chrome、Firefox、Edgeなどのブラウザと互換性があります。
 
@@ -168,22 +169,12 @@ S1とS1-miniの両方がオンライン人間フィードバック強化学習�
 ### **ビデオショーケース**
 
 <a href="https://www.youtube.com/watch?v=SYuPvd7m06A" target="_blank">
-    <img src="../docs/assets/Thumbnail.jpg" alt="OpenAudio S1 Video" style="width: 50%;" />
+    <img src="assets/Thumbnail.jpg" alt="OpenAudio S1 Video" style="width: 50%;" />
 </a>
-
-### **音声サンプル**
-<div style="margin: 20px 0;">
-    <em>高品質の音声サンプルは間もなく公開予定で、異なる言語と感情における私たちの多言語TTS機能を実演します。</em>
-</div>
 
 </div>
 
 ---
-
-## ドキュメント
-
-- [環境構築](ja/install.md)
-- [推論](ja/inference.md)
 
 ## クレジット
 

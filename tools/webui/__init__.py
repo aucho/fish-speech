@@ -34,7 +34,7 @@ def build_app(inference_fct: Callable, theme: str = "light") -> gr.Blocks:
                                     label=i18n("Iterative Prompt Length, 0 means off"),
                                     minimum=100,
                                     maximum=400,
-                                    value=300,
+                                    value=200,
                                     step=8,
                                 )
 
@@ -44,7 +44,7 @@ def build_app(inference_fct: Callable, theme: str = "light") -> gr.Blocks:
                                     ),
                                     minimum=0,
                                     maximum=2048,
-                                    value=0,
+                                    value=2048,
                                     step=8,
                                 )
 
@@ -60,7 +60,7 @@ def build_app(inference_fct: Callable, theme: str = "light") -> gr.Blocks:
                                 repetition_penalty = gr.Slider(
                                     label=i18n("Repetition Penalty"),
                                     minimum=1,
-                                    maximum=1.2,
+                                    maximum=1.4,
                                     value=1.1,
                                     step=0.01,
                                 )
@@ -68,9 +68,9 @@ def build_app(inference_fct: Callable, theme: str = "light") -> gr.Blocks:
                             with gr.Row():
                                 temperature = gr.Slider(
                                     label="Temperature",
-                                    minimum=0.7,
+                                    minimum=0.5,
                                     maximum=1.0,
-                                    value=0.8,
+                                    value=0.5,
                                     step=0.01,
                                 )
                                 seed = gr.Number(
