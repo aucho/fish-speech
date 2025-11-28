@@ -134,3 +134,50 @@ class UpdateReferenceResponse(BaseModel):
     message: str
     old_reference_id: str
     new_reference_id: str
+
+
+class AsyncGenerateRequest(BaseModel):
+    """异步生成请求"""
+    step_id: str
+    text: str
+    chunk_length: Annotated[int, conint(ge=100, le=300, strict=True)] = 200
+    format: Literal["wav", "pcm", "mp3"] = "mp3"
+    references: list[ServeReferenceAudio] = []
+    reference_id: str | None = None
+    seed: int | None = None
+    use_memory_cache: Literal["on", "off"] = "off"
+    normalize: bool = True
+    max_new_tokens: int = 2048
+    top_p: Annotated[float, Field(ge=0.1, le=1.0, strict=True)] = 0.8
+    repetition_penalty: Annotated[float, Field(ge=0.9, le=2.0, strict=True)] = 1.1
+    temperature: Annotated[float, Field(ge=0.1, le=1.0, strict=True)] = 0.8
+
+    class Config:
+        arbitrary_types_allowed = True
+
+
+class AsyncGenerateResponse(BaseModel):
+    """异步生成响应"""
+    success: bool
+    message: str
+    step_id: str
+    status: str  # pending, running, completed, failed, cancelled
+
+
+class TaskStatusResponse(BaseModel):
+    """任务状态响应"""
+    success: bool
+    step_id: str
+    status: str  # pending, running, completed, failed, cancelled
+    created_at: float
+    started_at: float | None = None
+    completed_at: float | None = None
+    download_url: str | None = None
+    error: str | None = None
+
+
+class StopTaskResponse(BaseModel):
+    """停止任务响应"""
+    success: bool
+    message: str
+    step_id: str | None = None

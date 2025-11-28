@@ -23,6 +23,7 @@ pyrootutils.setup_root(__file__, indicator=".project-root", pythonpath=True)
 from tools.server.api_utils import MsgPackRequest, parse_args
 from tools.server.exception_handler import ExceptionHandler
 from tools.server.model_manager import ModelManager
+from tools.server.task_manager import TaskManager
 from tools.server.views import routes
 
 
@@ -89,6 +90,9 @@ class API(ExceptionHandler):
             decoder_checkpoint_path=self.args.decoder_checkpoint_path,
             decoder_config_name=self.args.decoder_config_name,
         )
+
+        # Initialize TaskManager for async tasks
+        app.state.task_manager = TaskManager()
 
         logger.info(f"Startup done, listening server at http://{self.args.listen}")
 

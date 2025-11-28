@@ -671,7 +671,7 @@ def launch_thread_safe_queue(
 )
 @click.option("--num-samples", type=int, default=1)
 @click.option("--max-new-tokens", type=int, default=2048)
-@click.option("--top-p", type=float, default=0.5)
+@click.option("--top-p", type=float, default=0.8)
 @click.option("--repetition-penalty", type=float, default=1.1)
 @click.option("--temperature", type=float, default=0.8)
 @click.option(

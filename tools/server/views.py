@@ -27,6 +27,8 @@ from typing_extensions import Annotated
 from fish_speech.utils.schema import (
     AddReferenceRequest,
     AddReferenceResponse,
+    AsyncGenerateRequest,
+    AsyncGenerateResponse,
     DeleteReferenceResponse,
     ListReferencesResponse,
     ServeTTSRequest,
@@ -34,6 +36,8 @@ from fish_speech.utils.schema import (
     ServeVQGANDecodeResponse,
     ServeVQGANEncodeRequest,
     ServeVQGANEncodeResponse,
+    StopTaskResponse,
+    TaskStatusResponse,
     UpdateReferenceResponse,
 )
 from tools.server.api_utils import (
@@ -48,6 +52,7 @@ from tools.server.model_utils import (
     batch_vqgan_decode,
     cached_vqgan_batch_encode,
 )
+from tools.server.task_manager import TaskManager, TaskStatus
 
 MAX_NUM_SAMPLES = int(os.getenv("NUM_SAMPLES", 1))
 
@@ -458,5 +463,243 @@ async def update_reference(
             message="Internal server error occurred",
             old_reference_id=old_reference_id if "old_reference_id" in locals() else "",
             new_reference_id=new_reference_id if "new_reference_id" in locals() else "",
+        )
+        return format_response(response, status_code=500)
+
+
+@routes.http.post("/generate_audio_enhanced_async")
+async def generate_audio_enhanced_async(
+    req: Annotated[AsyncGenerateRequest, Body(exclusive=True)]
+):
+    """
+    异步生成音频接口。
+    接收stepId参数，立即返回，在后台开始生成。
+    """
+    try:
+        # 获取模型管理器和任务管理器
+        app_state = request.app.state
+        model_manager: ModelManager = app_state.model_manager
+        task_manager: TaskManager = app_state.task_manager
+        engine = model_manager.tts_inference_engine
+
+        # 检查文本长度
+        if app_state.max_text_length > 0 and len(req.text) > app_state.max_text_length:
+            response = AsyncGenerateResponse(
+                success=False,
+                message=f"Text is too long, max length is {app_state.max_text_length}",
+                step_id=req.step_id,
+                status="failed",
+            )
+            return format_response(response, status_code=400)
+
+        # 转换为ServeTTSRequest
+        tts_request = ServeTTSRequest(
+            text=req.text,
+            chunk_length=req.chunk_length,
+            format=req.format,
+            references=req.references,
+            reference_id=req.reference_id,
+            seed=req.seed,
+            use_memory_cache=req.use_memory_cache,
+            normalize=req.normalize,
+            streaming=False,  # 异步任务不支持流式
+            max_new_tokens=req.max_new_tokens,
+            top_p=req.top_p,
+            repetition_penalty=req.repetition_penalty,
+            temperature=req.temperature,
+        )
+
+        # 创建任务
+        try:
+            task = task_manager.create_task(req.step_id, tts_request)
+        except ValueError as e:
+            response = AsyncGenerateResponse(
+                success=False,
+                message=str(e),
+                step_id=req.step_id,
+                status="failed",
+            )
+            return format_response(response, status_code=400)
+
+        # 启动任务
+        task_manager.start_task(task, engine)
+
+        response = AsyncGenerateResponse(
+            success=True,
+            message="Task created and started",
+            step_id=req.step_id,
+            status=task.status.value,
+        )
+        return format_response(response)
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error in async generation: {e}", exc_info=True)
+        response = AsyncGenerateResponse(
+            success=False,
+            message=f"Failed to create async task: {str(e)}",
+            step_id=req.step_id if "req" in locals() else "unknown",
+            status="failed",
+        )
+        return format_response(response, status_code=500)
+
+
+@routes.http.get("/get_task_status/{step_id}")
+async def get_task_status(step_id: str):
+    """
+    查询任务状态接口。
+    返回对应stepId的生成状态，如果已完成，则提供下载地址。
+    """
+    try:
+        app_state = request.app.state
+        task_manager: TaskManager = app_state.task_manager
+
+        task_info = task_manager.get_task_info(step_id)
+        if task_info is None:
+            response = TaskStatusResponse(
+                success=False,
+                step_id=step_id,
+                status="not_found",
+                created_at=0,
+            )
+            return format_response(response, status_code=404)
+
+        response = TaskStatusResponse(
+            success=True,
+            step_id=task_info["step_id"],
+            status=task_info["status"],
+            created_at=task_info["created_at"],
+            started_at=task_info.get("started_at"),
+            completed_at=task_info.get("completed_at"),
+            download_url=task_info.get("download_url"),
+            error=task_info.get("error"),
+        )
+        return format_response(response)
+
+    except Exception as e:
+        logger.error(f"Error getting task status: {e}", exc_info=True)
+        response = TaskStatusResponse(
+            success=False,
+            step_id=step_id,
+            status="error",
+            created_at=0,
+            error=str(e),
+        )
+        return format_response(response, status_code=500)
+
+
+@routes.http.get("/download_result/{step_id}")
+async def download_result(step_id: str):
+    """
+    下载生成结果接口。
+    返回对应stepId的生成结果文件。
+    """
+    try:
+        app_state = request.app.state
+        task_manager: TaskManager = app_state.task_manager
+
+        task = task_manager.get_task(step_id)
+        if task is None:
+            raise HTTPException(
+                HTTPStatus.NOT_FOUND,
+                content=f"Task {step_id} not found",
+            )
+
+        if task.status != TaskStatus.COMPLETED:
+            raise HTTPException(
+                HTTPStatus.BAD_REQUEST,
+                content=f"Task {step_id} is not completed, current status: {task.status.value}",
+            )
+
+        if not task.result_path or not os.path.exists(task.result_path):
+            raise HTTPException(
+                HTTPStatus.NOT_FOUND,
+                content=f"Result file for task {step_id} not found",
+            )
+
+        # 读取文件并返回
+        with open(task.result_path, "rb") as f:
+            file_content = f.read()
+
+        # 获取文件格式
+        file_format = task.request.format
+        filename = f"audio_{step_id}.{file_format}"
+
+        return StreamResponse(
+            iterable=buffer_to_async_generator(file_content),
+            headers={
+                "Content-Disposition": f"attachment; filename={filename}",
+            },
+            content_type=get_content_type(file_format),
+        )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error downloading result: {e}", exc_info=True)
+        raise HTTPException(
+            HTTPStatus.INTERNAL_SERVER_ERROR,
+            content=f"Failed to download result: {str(e)}",
+        )
+
+
+@routes.http.post("/stop_generation")
+async def stop_generation():
+    """
+    停止所有正在运行的生成任务。
+    """
+    try:
+        app_state = request.app.state
+        task_manager: TaskManager = app_state.task_manager
+
+        count = task_manager.cancel_all_tasks()
+
+        response = StopTaskResponse(
+            success=True,
+            message=f"Stopped {count} task(s)",
+        )
+        return format_response(response)
+
+    except Exception as e:
+        logger.error(f"Error stopping generation: {e}", exc_info=True)
+        response = StopTaskResponse(
+            success=False,
+            message=f"Failed to stop generation: {str(e)}",
+        )
+        return format_response(response, status_code=500)
+
+
+@routes.http.post("/stop_async_task/{step_id}")
+async def stop_async_task(step_id: str):
+    """
+    停止指定的异步任务。
+    """
+    try:
+        app_state = request.app.state
+        task_manager: TaskManager = app_state.task_manager
+
+        success = task_manager.cancel_task(step_id)
+        if not success:
+            response = StopTaskResponse(
+                success=False,
+                message=f"Task {step_id} not found",
+                step_id=step_id,
+            )
+            return format_response(response, status_code=404)
+
+        response = StopTaskResponse(
+            success=True,
+            message=f"Task {step_id} stopped",
+            step_id=step_id,
+        )
+        return format_response(response)
+
+    except Exception as e:
+        logger.error(f"Error stopping task: {e}", exc_info=True)
+        response = StopTaskResponse(
+            success=False,
+            message=f"Failed to stop task: {str(e)}",
+            step_id=step_id,
         )
         return format_response(response, status_code=500)
