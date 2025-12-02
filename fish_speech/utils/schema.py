@@ -161,14 +161,14 @@ class AsyncGenerateResponse(BaseModel):
     success: bool
     message: str
     step_id: str
-    status: str  # pending, running, completed, failed, cancelled
+    status: str  # pending, processing, completed, failed, cancelled
 
 
 class TaskStatusResponse(BaseModel):
     """任务状态响应"""
     success: bool
     step_id: str
-    status: str  # pending, running, completed, failed, cancelled
+    status: str  # pending, processing, completed, failed, cancelled
     created_at: float
     started_at: float | None = None
     completed_at: float | None = None

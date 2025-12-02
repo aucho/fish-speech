@@ -21,7 +21,7 @@ from tools.server.inference import inference_wrapper as inference
 class TaskStatus(str, Enum):
     """任务状态枚举"""
     PENDING = "pending"  # 等待中
-    RUNNING = "running"  # 运行中
+    RUNNING = "processing"  # 处理中
     COMPLETED = "completed"  # 已完成
     FAILED = "failed"  # 失败
     CANCELLED = "cancelled"  # 已取消
