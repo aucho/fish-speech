@@ -3,6 +3,40 @@
 # Fish Speech API 服务器启动脚本
 # 用法: ./start_api.sh [选项]
 
+# 激活 conda 环境
+CONDA_ENV="fish-speech"
+
+# 尝试初始化 conda（支持多个常见安装位置）
+if [ -f "$HOME/anaconda3/etc/profile.d/conda.sh" ]; then
+    source "$HOME/anaconda3/etc/profile.d/conda.sh"
+elif [ -f "$HOME/miniconda3/etc/profile.d/conda.sh" ]; then
+    source "$HOME/miniconda3/etc/profile.d/conda.sh"
+elif [ -f "/opt/conda/etc/profile.d/conda.sh" ]; then
+    source "/opt/conda/etc/profile.d/conda.sh"
+elif [ -f "$CONDA_PREFIX/etc/profile.d/conda.sh" ]; then
+    source "$CONDA_PREFIX/etc/profile.d/conda.sh"
+elif command -v conda &> /dev/null; then
+    # 如果 conda 已在 PATH 中，尝试直接使用
+    eval "$(conda shell.bash hook)"
+else
+    echo "警告: 未找到 conda，尝试直接运行（如果已激活环境可忽略此警告）"
+fi
+
+# 激活 fish-speech 环境
+if command -v conda &> /dev/null; then
+    echo "正在激活 conda 环境: $CONDA_ENV"
+    conda activate "$CONDA_ENV" || {
+        echo "错误: 无法激活 conda 环境 '$CONDA_ENV'"
+        echo "请确保已创建该环境: conda create -n $CONDA_ENV python=3.10"
+        exit 1
+    }
+    echo "已激活 conda 环境: $CONDA_ENV"
+    echo ""
+else
+    echo "警告: conda 命令不可用，假设环境已激活"
+    echo ""
+fi
+
 # 设置默认值
 MODE=${MODE:-tts}
 LLAMA_CHECKPOINT_PATH=${LLAMA_CHECKPOINT_PATH:-checkpoints/openaudio-s1-mini}

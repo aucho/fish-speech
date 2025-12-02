@@ -4,6 +4,26 @@ REM 用法: start_api.bat [选项]
 
 setlocal enabledelayedexpansion
 
+REM 激活 conda 环境
+set CONDA_ENV=fish-speech
+
+REM 检查 conda 是否可用
+where conda >nul 2>&1
+if %ERRORLEVEL% NEQ 0 (
+    echo 警告: 未找到 conda 命令，尝试直接运行（如果已激活环境可忽略此警告）
+    echo.
+) else (
+    echo 正在激活 conda 环境: %CONDA_ENV%
+    call conda activate %CONDA_ENV%
+    if %ERRORLEVEL% NEQ 0 (
+        echo 错误: 无法激活 conda 环境 '%CONDA_ENV%'
+        echo 请确保已创建该环境: conda create -n %CONDA_ENV% python=3.10
+        exit /b 1
+    )
+    echo 已激活 conda 环境: %CONDA_ENV%
+    echo.
+)
+
 REM 设置默认值
 if "%MODE%"=="" set MODE=tts
 if "%LLAMA_CHECKPOINT_PATH%"=="" set LLAMA_CHECKPOINT_PATH=checkpoints/openaudio-s1-mini
