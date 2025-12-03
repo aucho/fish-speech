@@ -10,12 +10,20 @@ from pathlib import Path
 from typing import Dict, Optional
 
 import numpy as np
+import pyrootutils
 import soundfile as sf
 from loguru import logger
 
 from fish_speech.inference_engine import TTSInferenceEngine
 from fish_speech.utils.schema import ServeTTSRequest
 from tools.server.inference import inference_wrapper as inference
+
+# 获取项目根目录
+try:
+    PROJECT_ROOT = Path(pyrootutils.find_root(search_from=__file__, indicator=".project-root"))
+except Exception:
+    # 如果找不到项目根目录，使用当前文件所在目录向上查找
+    PROJECT_ROOT = Path(__file__).parent.parent.parent
 
 
 class TaskStatus(str, Enum):
@@ -59,7 +67,7 @@ class TaskManager:
         初始化任务管理器
         
         Args:
-            temp_dir: 临时目录路径，用于存储生成结果。如果为None，则使用系统临时目录
+            temp_dir: 临时目录路径，用于存储生成结果。如果为None，则使用项目目录下的临时文件夹
         """
         self.tasks: Dict[str, AsyncTask] = {}
         self.lock = threading.Lock()
@@ -68,7 +76,8 @@ class TaskManager:
         if temp_dir:
             self.temp_dir = Path(temp_dir)
         else:
-            self.temp_dir = Path(tempfile.gettempdir()) / "fish_speech_async_results"
+            # 默认使用项目目录下的临时文件夹
+            self.temp_dir = PROJECT_ROOT / "temp" / "async_results"
         
         # 确保临时目录存在
         self.temp_dir.mkdir(parents=True, exist_ok=True)
