@@ -431,7 +431,7 @@ def generate_long(
         import re
 
         # First split by major sentence delimiters to preserve natural pauses
-        sentences = [s for s in re.split(r"([。！？!?；;]\s*|\n+)", src_text) if s is not None and s != ""]
+        sentences = [s for s in re.split(r"([。！？!?；;\.]\s*|\n+)", src_text) if s is not None and s != ""]
         # Merge delimiter back to preceding content
         merged: list[str] = []
         cur = ""
