@@ -545,13 +545,25 @@ async def generate_audio_enhanced_async(
         return format_response(response, status_code=500)
 
 
-@routes.http.get("/get_task_status/{step_id}")
-async def get_task_status(step_id: str):
+@routes.http.get("/get_task_status")
+async def get_task_status():
     """
     查询任务状态接口。
     返回对应stepId的生成状态，如果已完成，则提供下载地址。
     """
     try:
+        # 从查询参数获取 step_id
+        step_id = request.query_params.get("step_id")
+        if not step_id:
+            response = TaskStatusResponse(
+                success=False,
+                step_id="",
+                status="error",
+                created_at=0,
+                error="step_id query parameter is required",
+            )
+            return format_response(response, status_code=400)
+        
         app_state = request.app.state
         task_manager: TaskManager = app_state.task_manager
 
@@ -579,6 +591,8 @@ async def get_task_status(step_id: str):
 
     except Exception as e:
         logger.error(f"Error getting task status: {e}", exc_info=True)
+        # 尝试获取 step_id，如果获取失败则使用空字符串
+        step_id = request.query_params.get("step_id", "")
         response = TaskStatusResponse(
             success=False,
             step_id=step_id,
@@ -589,13 +603,21 @@ async def get_task_status(step_id: str):
         return format_response(response, status_code=500)
 
 
-@routes.http.get("/download_result/{step_id}")
-async def download_result(step_id: str):
+@routes.http.get("/download_result")
+async def download_result():
     """
     下载生成结果接口。
     返回对应stepId的生成结果文件。
     """
     try:
+        # 从查询参数获取 step_id
+        step_id = request.query_params.get("step_id")
+        if not step_id:
+            raise HTTPException(
+                HTTPStatus.BAD_REQUEST,
+                content="step_id query parameter is required",
+            )
+        
         app_state = request.app.state
         task_manager: TaskManager = app_state.task_manager
 
