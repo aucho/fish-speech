@@ -9,11 +9,11 @@ from kui.asgi import (
     HTTPException,
     HttpRoute,
     Kui,
-    OpenAPI,
+    # OpenAPI,  # Disabled
     Routes,
 )
 from kui.cors import CORSConfig
-from kui.openapi.specification import Info
+# from kui.openapi.specification import Info  # Disabled
 from kui.security import bearer_auth
 from loguru import logger
 from typing_extensions import Annotated
@@ -50,19 +50,19 @@ class API(ExceptionHandler):
             http_middlewares=[api_auth],  # apply api_auth middleware
         )
 
-        # OpenAPIの設定
-        self.openapi = OpenAPI(
-            Info(
-                {
-                    "title": "Fish Speech API",
-                    "version": "1.5.0",
-                }
-            ),
-        ).routes
+        # OpenAPI documentation disabled
+        # self.openapi = OpenAPI(
+        #     Info(
+        #         {
+        #             "title": "Fish Speech API",
+        #             "version": "1.5.0",
+        #         }
+        #     ),
+        # ).routes
 
         # Initialize the app
         self.app = Kui(
-            routes=self.routes + self.openapi[1:],  # Remove the default route
+            routes=self.routes,  # OpenAPI docs disabled
             exception_handlers={
                 HTTPException: self.http_exception_handler,
                 Exception: self.other_exception_handler,
