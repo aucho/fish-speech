@@ -78,11 +78,11 @@ def parse_args():
     parser.add_argument(
         "--max_new_tokens",
         type=int,
-        default=1024,
+        default=2048,
         help="Maximum new tokens to generate. \n0 means no limit.",
     )
     parser.add_argument(
-        "--chunk_length", type=int, default=300, help="Chunk length for synthesis"
+        "--chunk_length", type=int, default=200, help="Chunk length for synthesis"
     )
     parser.add_argument(
         "--top_p", type=float, default=0.8, help="Top-p sampling for synthesis"
