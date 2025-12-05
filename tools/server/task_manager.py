@@ -96,8 +96,20 @@ class TaskManager:
             AsyncTask对象
         """
         with self.lock:
+            # 如果任务已存在
             if step_id in self.tasks:
-                raise ValueError(f"Task with step_id {step_id} already exists")
+                old_task = self.tasks[step_id]
+                # 如果旧任务还在运行或等待中，抛出错误
+                if old_task.status in (TaskStatus.PENDING, TaskStatus.RUNNING):
+                    raise ValueError(f"Task with step_id {step_id} is running")
+                # 如果任务已结束（已完成、失败或已取消），则覆盖
+                # 清理旧任务的临时文件
+                if old_task.result_path and os.path.exists(old_task.result_path):
+                    try:
+                        os.unlink(old_task.result_path)
+                    except Exception as e:
+                        logger.warning(f"Failed to delete old task temp file: {e}")
+                logger.info(f"Overwriting completed task {step_id}")
             
             task = AsyncTask(step_id, request)
             self.tasks[step_id] = task
