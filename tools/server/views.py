@@ -11,6 +11,7 @@ import numpy as np
 import ormsgpack
 import soundfile as sf
 import torch
+from pydub import AudioSegment
 from kui.asgi import (
     Body,
     HTTPException,
@@ -167,13 +168,32 @@ async def tts(req: Annotated[ServeTTSRequest, Body(exclusive=True)]):
             )
         else:
             fake_audios = next(inference(req, engine))
-            buffer = io.BytesIO()
-            sf.write(
-                buffer,
-                fake_audios,
-                sample_rate,
-                format=req.format,
-            )
+            
+            # 对于 MP3 格式，使用 pydub 设置比特率（至少 128kbps）
+            if req.format == "mp3":
+                # 先将 numpy 数组保存为 WAV 格式的临时文件
+                temp_wav = io.BytesIO()
+                sf.write(temp_wav, fake_audios, sample_rate, format="wav")
+                temp_wav.seek(0)
+                
+                # 使用 pydub 转换为 MP3，设置比特率为 192kbps
+                audio_segment = AudioSegment.from_wav(temp_wav)
+                buffer = io.BytesIO()
+                audio_segment.export(
+                    buffer,
+                    format="mp3",
+                    bitrate="192k"  # 设置为 192kbps，高于 128kbps 要求
+                )
+                buffer.seek(0)
+            else:
+                # 对于其他格式（WAV、FLAC），使用 soundfile
+                buffer = io.BytesIO()
+                sf.write(
+                    buffer,
+                    fake_audios,
+                    sample_rate,
+                    format=req.format,
+                )
 
             return StreamResponse(
                 iterable=buffer_to_async_generator(buffer.getvalue()),

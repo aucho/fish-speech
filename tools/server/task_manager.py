@@ -13,6 +13,7 @@ import numpy as np
 import pyrootutils
 import soundfile as sf
 from loguru import logger
+from pydub import AudioSegment
 
 from fish_speech.inference_engine import TTSInferenceEngine
 from fish_speech.utils.schema import ServeTTSRequest
@@ -177,16 +178,33 @@ class TaskManager:
                 result_filename = f"{task.step_id}.{task.request.format}"
                 result_path = self.temp_dir / result_filename
                 
-                buffer = io.BytesIO()
-                sf.write(
-                    buffer,
-                    audio_data,
-                    sample_rate,
-                    format=task.request.format,
-                )
-                
-                with open(result_path, "wb") as f:
-                    f.write(buffer.getvalue())
+                # 对于 MP3 格式，使用 pydub 设置比特率（至少 128kbps）
+                if task.request.format == "mp3":
+                    # 先将 numpy 数组转换为 AudioSegment
+                    # 需要先保存为 WAV 格式的临时文件，然后转换为 MP3
+                    temp_wav = io.BytesIO()
+                    sf.write(temp_wav, audio_data, sample_rate, format="wav")
+                    temp_wav.seek(0)
+                    
+                    # 使用 pydub 转换为 MP3，设置比特率为 192kbps
+                    audio_segment = AudioSegment.from_wav(temp_wav)
+                    audio_segment.export(
+                        result_path,
+                        format="mp3",
+                        bitrate="192k"  # 设置为 192kbps，高于 128kbps 要求
+                    )
+                else:
+                    # 对于其他格式（WAV、FLAC），使用 soundfile
+                    buffer = io.BytesIO()
+                    sf.write(
+                        buffer,
+                        audio_data,
+                        sample_rate,
+                        format=task.request.format,
+                    )
+                    
+                    with open(result_path, "wb") as f:
+                        f.write(buffer.getvalue())
                 
                 task.result_path = str(result_path)
                 task.status = TaskStatus.COMPLETED
