@@ -1,5 +1,6 @@
 import gc
 import queue
+import time
 from typing import Generator
 
 import numpy as np
@@ -83,20 +84,28 @@ class TTSInferenceEngine(ReferenceLoader, VQManager):
 
         segments = []
         is_first_segment = True
+        error_occurred = False
+        error_exception = None
 
         while True:
             # Get the response from the LLAMA model
             wrapped_result: WrappedGenerateResponse = response_queue.get()
             if wrapped_result.status == "error":
-                yield InferenceResult(
-                    code="error",
-                    audio=None,
-                    error=(
-                        wrapped_result.response
-                        if isinstance(wrapped_result.response, Exception)
-                        else Exception("Unknown error")
-                    ),
+                # 记录错误
+                error_occurred = True
+                error_exception = (
+                    wrapped_result.response
+                    if isinstance(wrapped_result.response, Exception)
+                    else Exception("Unknown error")
                 )
+                logger.warning(
+                    f"Error occurred during generation: {error_exception}. "
+                    f"Current segments: {len(segments)}. "
+                    "Will stop processing and yield final result if any segments exist."
+                )
+                # 遇到错误后立即停止，不再继续处理队列中的chunks
+                # 这样可以避免LLAMA worker线程继续生成chunks导致无限等待
+                # 如果已有segments，会在后续代码中yield final结果
                 break
 
             # Check the response type
@@ -149,19 +158,40 @@ class TTSInferenceEngine(ReferenceLoader, VQManager):
 
         # Edge case: no audio generated
         if len(segments) == 0:
-            yield InferenceResult(
-                code="error",
-                audio=None,
-                error=RuntimeError("No audio generated, please check the input text."),
-            )
+            # 如果没有 segments，返回错误
+            if error_occurred and error_exception:
+                yield InferenceResult(
+                    code="error",
+                    audio=None,
+                    error=error_exception,
+                )
+            else:
+                yield InferenceResult(
+                    code="error",
+                    audio=None,
+                    error=RuntimeError("No audio generated, please check the input text."),
+                )
         else:
             # Streaming or not, return the final audio
             audio = np.concatenate(segments, axis=0)
+            # 如果发生了错误但仍有部分结果，先 yield final，然后再 yield error
+            if error_occurred and error_exception:
+                logger.warning(
+                    f"Error occurred during inference, but {len(segments)} segments were already generated. "
+                    f"Will yield final result first, then error."
+                )
             yield InferenceResult(
                 code="final",
                 audio=(sample_rate, audio),
                 error=None,
             )
+            # 如果发生了错误，在 yield final 后也 yield error
+            if error_occurred and error_exception:
+                yield InferenceResult(
+                    code="error",
+                    audio=None,
+                    error=error_exception,
+                )
 
         return None
 

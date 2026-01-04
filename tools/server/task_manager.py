@@ -18,6 +18,7 @@ from pydub import AudioSegment
 from fish_speech.inference_engine import TTSInferenceEngine
 from fish_speech.utils.schema import ServeTTSRequest
 from tools.server.inference import inference_wrapper as inference
+from tools.server.inference import PartialResultError
 
 # 获取项目根目录
 try:
@@ -150,29 +151,70 @@ class TaskManager:
                 audio_data = None
                 sample_rate = engine.decoder_model.sample_rate
                 
-                for result in inference(task.request, engine):
-                    # 检查是否已取消
-                    if task.cancelled.is_set():
-                        task.status = TaskStatus.CANCELLED
-                        # 清理临时文件
-                        if task.result_path and os.path.exists(task.result_path):
-                            try:
-                                os.unlink(task.result_path)
-                            except Exception as e:
-                                logger.warning(f"Failed to delete temp file: {e}")
-                        return
+                inference_error_occurred = False
+                inference_error_message = None
+                
+                try:
+                    for result in inference(task.request, engine):
+                        # 检查是否已取消
+                        if task.cancelled.is_set():
+                            task.status = TaskStatus.CANCELLED
+                            # 清理临时文件
+                            if task.result_path and os.path.exists(task.result_path):
+                                try:
+                                    os.unlink(task.result_path)
+                                except Exception as e:
+                                    logger.warning(f"Failed to delete temp file: {e}")
+                            return
+                        
+                        # 收集音频数据
+                        # inference_wrapper对于segment返回bytes，对于final返回numpy数组
+                        # 对于非流式请求，我们应该等待final结果（numpy数组），它包含了所有合并后的音频
+                        if isinstance(result, np.ndarray):
+                            # Final数据，直接使用（这是合并后的完整音频）
+                            audio_data = result
+                            # 收到 final 后，状态保持为 processing，继续处理可能的错误
+                            # 不立即 break，让生成器自然结束或处理后续的 error
+                        # 对于segment（bytes），我们忽略它们，因为final结果已经包含了所有数据
+                except PartialResultError as partial_error:
+                    # 部分结果错误：推理过程中发生错误，但已生成部分结果
+                    inference_error_occurred = True
+                    inference_error_message = partial_error.error_message
                     
-                    # 收集音频数据
-                    # inference_wrapper对于segment返回bytes，对于final返回numpy数组
-                    # 对于非流式请求，我们应该等待final结果（numpy数组），它包含了所有合并后的音频
-                    if isinstance(result, np.ndarray):
-                        # Final数据，直接使用（这是合并后的完整音频）
-                        audio_data = result
-                        break  # 找到final结果后就可以退出了
-                    # 对于segment（bytes），我们忽略它们，因为final结果已经包含了所有数据
+                    # 如果已经收集到了final数据，仍然可以保存，状态保持为 processing
+                    if audio_data is None:
+                        # 没有收集到数据，重新抛出异常，状态会改为 failed
+                        raise partial_error
+                    # 有数据，记录警告但继续保存，状态保持为 processing
+                    logger.warning(
+                        f"Inference error occurred after final data was generated: {partial_error.error_message}. "
+                        f"Will save partial result. Status will remain as processing until file is saved."
+                    )
+                except Exception as inference_error:
+                    # 其他异常：如果推理过程中发生异常
+                    inference_error_occurred = True
+                    inference_error_message = str(inference_error)
+                    
+                    # 如果已经收集到了final数据，仍然可以保存，状态保持为 processing
+                    if audio_data is None:
+                        # 没有收集到数据，重新抛出异常，状态会改为 failed
+                        raise inference_error
+                    # 有数据，记录警告但继续保存，状态保持为 processing
+                    logger.warning(
+                        f"Inference error occurred after final data was generated: {inference_error}. "
+                        f"Will save partial result. Status will remain as processing until file is saved."
+                    )
                 
                 if audio_data is None:
                     raise ValueError("No audio generated")
+                
+                # 如果发生了错误但已有数据，状态仍然保持为 processing
+                # 只有在保存文件完成后，状态才会改为 completed
+                if inference_error_occurred:
+                    logger.info(
+                        f"Task {task.step_id} encountered error but has partial result. "
+                        f"Status remains as processing. Will save file and then mark as completed."
+                    )
                 
                 # 保存到临时文件
                 result_filename = f"{task.step_id}.{task.request.format}"
@@ -210,10 +252,18 @@ class TaskManager:
                 task.status = TaskStatus.COMPLETED
                 task.completed_at = time.time()
                 
-                logger.info(
-                    f"Task {task.step_id} completed in "
-                    f"{task.completed_at - task.started_at:.2f}s"
-                )
+                # 如果之前发生了错误，记录错误信息（但不影响完成状态）
+                if inference_error_occurred:
+                    task.error_message = inference_error_message
+                    logger.info(
+                        f"Task {task.step_id} completed with partial result (error occurred: {inference_error_message}) "
+                        f"in {task.completed_at - task.started_at:.2f}s"
+                    )
+                else:
+                    logger.info(
+                        f"Task {task.step_id} completed in "
+                        f"{task.completed_at - task.started_at:.2f}s"
+                    )
                 
             except Exception as e:
                 task.status = TaskStatus.FAILED
